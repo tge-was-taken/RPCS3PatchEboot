@@ -73,13 +73,12 @@ namespace RPCS3PatchEboot
                 return;
             }
 
-            Console.WriteLine( "Success. Patches were applied successfully. Press any key to exit." );
-            Console.ReadKey();
+            Console.WriteLine( "Success. Patches were applied successfully!" );
         }
 
         static void PrintHelp()
         {
-            Console.WriteLine( "RPCS3PatchEboot version 1.0 by TGE. Please give credit where is due." );
+            Console.WriteLine( "RPCS3PatchEboot version 1.1 by TGE. Please give credit where is due." );
             Console.WriteLine();
             Console.WriteLine( "Info:");
             Console.WriteLine( "    This application applies patches in a RPCS3 patch.yml file and applies it to the EBOOT file directly." );
@@ -262,7 +261,9 @@ namespace RPCS3PatchEboot
         static bool TryParsePatchYaml( out List<PatchUnit> patchUnits )
         {
             // Set up deserialization
-            var input = File.OpenText( PatchYamlPath );
+            var input = File.ReadAllText( PatchYamlPath );
+            input = input.Replace( "\t", "    " );
+
             var deserializer = new DeserializerBuilder()
                 .IgnoreUnmatchedProperties()
                 .Build();
@@ -273,7 +274,7 @@ namespace RPCS3PatchEboot
             {
                 yamlMap = deserializer.Deserialize<Dictionary<string, List<List<string>>>>( input );
             }
-            catch ( Exception )
+            catch ( Exception e )
             {
                 patchUnits = null;
                 return false;
