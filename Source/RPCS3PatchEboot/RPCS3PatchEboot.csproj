@@ -52,6 +52,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Patch.cs" />
+    <Compile Include="PatchYamlParseResult.cs" />
     <Compile Include="PatchType.cs" />
     <Compile Include="PatchUnit.cs" />
     <Compile Include="Program.cs" />

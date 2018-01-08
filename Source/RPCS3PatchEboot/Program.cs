@@ -12,6 +12,9 @@ namespace RPCS3PatchEboot
 {
     class Program
     {
+        private static byte[] ElfMagic = { 0x7F, ( byte ) 'E', ( byte ) 'L', ( byte ) 'F' };
+        private static byte[] SceMagic = { ( byte ) 'S', ( byte ) 'C', ( byte ) 'E', 0x00 };
+
         public static string InEbootPath { get; private set; }
 
         public static string PatchYamlPath { get; private set; }
@@ -46,16 +49,17 @@ namespace RPCS3PatchEboot
                     return;
                 }
 
-                if ( !TryParsePatchYaml( out var patchUnits ) )
+                var parseResult = ParsePatchYaml();
+                if ( !parseResult.Success )
                 {
-                    Console.WriteLine( "Error: Invalid patch YAML. Press any key to exit." );
+                    Console.WriteLine( $"Error: Invalid patch YAML.\nException message:\n{parseResult.Exception.Message}\nPress any key to exit." );
                     Console.ReadKey();
                     return;
                 }
 
-                if ( !TryApplyPatchUnitsToEBOOT( ebootBaseOffset, patchUnits ) )
+                if ( !TryApplyPatchUnitsToEBOOT( ebootBaseOffset, parseResult.Patches ) )
                 {
-                    Console.WriteLine( "Error: Failed to apply patch units to EBOOT. Press any key to exit." );
+                    Console.WriteLine( "Error: Failed to apply patches to EBOOT. Press any key to exit." );
                     Console.ReadKey();
                     return;
                 }
@@ -78,7 +82,7 @@ namespace RPCS3PatchEboot
 
         static void PrintHelp()
         {
-            Console.WriteLine( "RPCS3PatchEboot version 1.1 by TGE. Please give credit where is due." );
+            Console.WriteLine( "RPCS3PatchEboot version 1.2 by TGE. Please give credit where is due." );
             Console.WriteLine();
             Console.WriteLine( "Info:");
             Console.WriteLine( "    This application applies patches in a RPCS3 patch.yml file and applies it to the EBOOT file directly." );
@@ -180,9 +184,9 @@ namespace RPCS3PatchEboot
 
             using ( var fileStream = File.OpenRead( InEbootPath ) )
             {
-                if ( !CheckMagic( fileStream, new byte[] { 0x7F, (byte)'E', (byte)'L', (byte)'F' } ) )
+                if ( !CheckMagic( fileStream, ElfMagic ) )
                 {
-                    if ( !CheckMagic( fileStream, new byte[] { (byte)'S', ( byte )'C', ( byte )'E', 0x00 } ) )
+                    if ( !CheckMagic( fileStream, SceMagic) )
                     {
                         Console.WriteLine( "Invalid EBOOT. Did you maybe forget to decrypt it?" );
                         return false;
@@ -190,16 +194,39 @@ namespace RPCS3PatchEboot
                     else
                     {
                         var elfPath = InEbootPath + ".elf";
+                        int elfOffset = -1;
+                        int elfsFound = 0;
+
+                        while ( (fileStream.Position + ElfMagic.Length) < fileStream.Length )
+                        {
+                            if ( CheckMagic( fileStream, ElfMagic, false ) )
+                            {
+                                ++elfsFound;
+
+                                if ( elfsFound == 2 ) // first elf is system stuff, second is the game
+                                {
+                                    elfOffset = ( int ) ( fileStream.Position - ElfMagic.Length );
+                                    break;
+                                }
+                            }
+                        }
+
+                        if ( elfOffset == -1 )
+                        {
+                            Console.WriteLine( "Invalid EBOOT. Can't find start of ELF data. Did you maybe forget to decrypt it?" );
+                            return false;
+                        }
+
                         using ( var elfFileStream = File.Create( elfPath ) )
                         {
-                            fileStream.Position = 0x980;
+                            fileStream.Position = elfOffset;
                             fileStream.CopyTo( elfFileStream );
                         }
 
                         if ( !TryGetBaseOffsetFromElfFile( elfPath, out baseOffset ) )
                             return false;
 
-                        baseOffset -= 0x980;
+                        baseOffset -= elfOffset;
                     }
                 }
                 else
@@ -212,7 +239,7 @@ namespace RPCS3PatchEboot
             return true;
         }
 
-        static bool CheckMagic( Stream stream, byte[] magic )
+        static bool CheckMagic( Stream stream, byte[] magic, bool resetPosition = true )
         {
             var magicBytes = new byte[magic.Length];
             stream.Read( magicBytes, 0, magic.Length );
@@ -227,7 +254,8 @@ namespace RPCS3PatchEboot
                 }
             }
 
-            stream.Position = 0;
+            if ( resetPosition )
+                stream.Position -= magic.Length;
 
             return matches;
         }
@@ -258,8 +286,10 @@ namespace RPCS3PatchEboot
             return true;
         }
 
-        static bool TryParsePatchYaml( out List<PatchUnit> patchUnits )
+        static PatchYamlParseResult ParsePatchYaml()
         {
+            var result = new PatchYamlParseResult();
+
             // Set up deserialization
             var input = File.ReadAllText( PatchYamlPath );
             input = input.Replace( "\t", "    " );
@@ -276,12 +306,11 @@ namespace RPCS3PatchEboot
             }
             catch ( Exception e )
             {
-                patchUnits = null;
-                return false;
+                result.Exception = e;
+                return result;
             }
 
             // Read patch units
-            patchUnits = new List<PatchUnit>();
             var patchUnitMap = new Dictionary<string, PatchUnit>();
 
             foreach ( var yamlMapEntry in yamlMap )
@@ -293,7 +322,7 @@ namespace RPCS3PatchEboot
                     {
                         if ( TryParsePatchUnits( yamlMapEntry, patchUnitMap, out var parsedPatchUnits ) )
                         {
-                            patchUnits.AddRange( parsedPatchUnits );
+                            result.Patches.AddRange( parsedPatchUnits );
                         }
                     }
                 }
@@ -308,12 +337,12 @@ namespace RPCS3PatchEboot
                         if ( PPUHashString != null )
                             patchUnitMap[parsedPatchUnits[0].Name] = parsedPatchUnits[0];
                         else
-                            patchUnits.Add( parsedPatchUnits[0] );
+                            result.Patches.Add( parsedPatchUnits[0] );
                     }
                 }
             }
 
-            return true;
+            return result;
         }
 
         static bool TryParsePatchUnits( KeyValuePair<string, List<List<string>>> yamlMapEntry, Dictionary<string, PatchUnit> patchUnitMap, out List<PatchUnit> patchUnits )
