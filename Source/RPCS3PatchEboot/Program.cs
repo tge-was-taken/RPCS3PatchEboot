@@ -7,6 +7,7 @@ using System.Linq;
 using YamlDotNet.Serialization;
 using ELFSharp.ELF;
 using ELFSharp.ELF.Sections;
+using System.Runtime.CompilerServices;
 
 namespace RPCS3PatchEboot
 {
@@ -33,7 +34,9 @@ namespace RPCS3PatchEboot
                 return;
             }
 
+#if !DEBUG
             try
+#endif
             {
                 if ( !TryParseArguments( args ) )
                 {
@@ -64,11 +67,9 @@ namespace RPCS3PatchEboot
                     return;
                 }
             }
+#if !DEBUG
             catch ( Exception exception )
             {
-#if DEBUG
-                throw exception;
-#endif
                 Console.WriteLine( $"Error: Exception thrown: {exception.Message}" );
                 Console.WriteLine( "Stacktrace:" );
                 Console.WriteLine( exception.StackTrace );
@@ -76,13 +77,14 @@ namespace RPCS3PatchEboot
                 Console.ReadKey();
                 return;
             }
+#endif
 
             Console.WriteLine( "Success. Patches were applied successfully!" );
         }
 
         static void PrintHelp()
         {
-            Console.WriteLine( "RPCS3PatchEboot version 1.2 by TGE. Please give credit where is due." );
+            Console.WriteLine( "RPCS3PatchEboot version 1.3 by TGE. Please give credit where is due." );
             Console.WriteLine();
             Console.WriteLine( "Info:");
             Console.WriteLine( "    This application applies patches in a RPCS3 patch.yml file and applies it to the EBOOT file directly." );
@@ -345,6 +347,39 @@ namespace RPCS3PatchEboot
             return result;
         }
 
+        static bool TryParseValue( string value, out dynamic parsedValue )
+        {
+            parsedValue = 0;
+
+            if ( string.IsNullOrWhiteSpace( value ) )
+                return false;
+
+            var isNegative = value.StartsWith( "-" );
+            var offsetParseString = isNegative ? value.Substring( 1 ) : value;
+            if ( offsetParseString.StartsWith( "0x" ) )
+            {
+                if ( !long.TryParse( offsetParseString.Substring( 2 ), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var longParsedValue ) )
+                    return false;
+
+                if ( isNegative )
+                    longParsedValue = -longParsedValue;
+
+                parsedValue = longParsedValue;
+            }
+            else
+            {
+                if ( !double.TryParse( offsetParseString, NumberStyles.Number, CultureInfo.InvariantCulture, out var doubleParsedValue ) )
+                    return false;
+
+                if ( isNegative )
+                    doubleParsedValue = -doubleParsedValue;
+
+                parsedValue = doubleParsedValue;
+            }
+
+            return true;
+        }
+
         static bool TryParsePatchUnits( KeyValuePair<string, List<List<string>>> yamlMapEntry, Dictionary<string, PatchUnit> patchUnitMap, out List<PatchUnit> patchUnits )
         {
             patchUnits = new List<PatchUnit>();
@@ -378,20 +413,12 @@ namespace RPCS3PatchEboot
 
                     if ( yamlPatch.Count > 2 )
                     {
-                        bool isNegative = yamlPatch[2][0] == '-';
-                        string offsetParseString = isNegative ? yamlPatch[2].Substring( 3 ) : yamlPatch[2].Substring( 2 );
-
-                        if ( !int.TryParse( offsetParseString, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int offset ) )
+                        if ( TryParseValue( yamlPatch[2], out var offset ) )
                         {
                             Console.WriteLine("Error: Failed to parse patch address offset");
                         }
                         else
                         {
-                            if ( isNegative )
-                            {
-                                offset = -offset;
-                            }
-
                             // make a copy of the patch
                             var patchUnitCopy = new PatchUnit( patchUnit.Name );
                             patchUnitCopy.Patches.AddRange( patchUnit.Patches );
@@ -413,21 +440,21 @@ namespace RPCS3PatchEboot
                 }
                 else
                 {
-                    if ( !uint.TryParse( yamlPatch[1].Substring( 2 ), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var offset ) )
+                    if ( !TryParseValue( yamlPatch[1], out var offset ) )
                     {
                         Console.WriteLine( $"Error: Unable to parse patch offset. Skipping {yamlMapEntry.Key}" );
                         validPatch = false;
                         break;
                     }
 
-                    if ( !ulong.TryParse( yamlPatch[2].Substring( 2 ), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value ) )
+                    if ( !TryParseValue( yamlPatch[2], out var value ) )
                     {
                         Console.WriteLine( $"Error: Unable to parse patch value. Skipping {yamlMapEntry.Key}" );
                         validPatch = false;
                         break;
                     }
 
-                    var patch = new Patch( patchType, offset, value );
+                    var patch = new Patch( patchType, (uint)offset, value );
                     patchUnit.Patches.Add( patch );
                 }
             }
@@ -454,60 +481,59 @@ namespace RPCS3PatchEboot
                     foreach ( var patch in patchUnit.Patches )
                     {
                         outFileStream.Position = ( patch.Offset - ebootBaseOffset );
-                        Console.WriteLine( $"{outFileStream.Position:X8} -> {patch.Value:X8} ({patch.Type})" );
+                        var valueStr = Math.Truncate((double)patch.Value) == patch.Value ? ((ulong)patch.Value).ToString("X8") : patch.Value.ToString();
+                        Console.WriteLine( $"{outFileStream.Position:X8} -> {valueStr} ({patch.Type})" );
 
+                        byte[] valueBuffer = null;
+                        bool reverse = false;
                         switch ( patch.Type )
                         {
                             case PatchType.Byte:
-                                outFileStream.WriteByte( ( byte )patch.Value );
+                                valueBuffer = new[] { ( byte )patch.Value };
                                 break;
                             case PatchType.Le16:
-                                outFileStream.WriteByte( ( byte )( patch.Value ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 8 ) );
+                                valueBuffer = BitConverter.GetBytes( ( ushort )patch.Value );
                                 break;
                             case PatchType.Le32:
                             case PatchType.LeF32:
-                                outFileStream.WriteByte( ( byte )( patch.Value ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 08 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 16 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 24 ) );
+                                if ( patch.Type == PatchType.Le32 ) valueBuffer = BitConverter.GetBytes( ( uint )patch.Value );
+                                else valueBuffer = BitConverter.GetBytes( ( float )patch.Value );
                                 break;
                             case PatchType.Le64:
                             case PatchType.LeF64:
-                                outFileStream.WriteByte( ( byte )( patch.Value ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 08 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 16 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 24 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 32 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 40 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 48 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 56 ) );
+                                if ( patch.Type == PatchType.Le64 ) valueBuffer = BitConverter.GetBytes( ( ulong )patch.Value );
+                                else valueBuffer = BitConverter.GetBytes( ( double )patch.Value );
                                 break;
                             case PatchType.Be16:
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 8 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value ) );
+                                valueBuffer = BitConverter.GetBytes( ( ushort )patch.Value );
+                                reverse = true;
                                 break;
                             case PatchType.Be32:
                             case PatchType.BeF32:
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 24 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 16 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 08 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value ) );
+                                if ( patch.Type == PatchType.Be32 ) valueBuffer = BitConverter.GetBytes( ( uint )patch.Value );
+                                else valueBuffer = BitConverter.GetBytes( ( float )patch.Value );
+                                reverse = true;
                                 break;
                             case PatchType.Be64:
                             case PatchType.BeF64:
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 56 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 48 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 40 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 32 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 24 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 16 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value >> 08 ) );
-                                outFileStream.WriteByte( ( byte )( patch.Value ) );
+                                if ( patch.Type == PatchType.Be64 ) valueBuffer = BitConverter.GetBytes( ( ulong )patch.Value );
+                                else valueBuffer = BitConverter.GetBytes( ( double )patch.Value );
+                                reverse = true;
                                 break;
                             default:
                                 Console.WriteLine( $"Unknown patch type: {patch.Type}" );
                                 return false;
+                        }
+
+                        if ( reverse )
+                        {
+                            for ( int i = valueBuffer.Length - 1; i >= 0; i-- )
+                                outFileStream.WriteByte( valueBuffer[i] );
+                        }
+                        else
+                        {
+                            for ( int i = 0; i < valueBuffer.Length; i++ )
+                                outFileStream.WriteByte( valueBuffer[i] );
                         }
                     }
                 }

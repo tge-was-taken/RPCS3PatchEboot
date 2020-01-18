@@ -6,9 +6,9 @@
 
         public uint Offset { get; set; }
 
-        public ulong Value { get; set; }
+        public dynamic Value { get; set; }
 
-        public Patch( PatchType type, uint offset, ulong value )
+        public Patch( PatchType type, uint offset, dynamic value )
         {
             Type = type;
             Offset = offset;
@@ -17,7 +17,7 @@
 
         public override string ToString()
         {
-            return $"{Type} 0x{Offset:X8} 0x{Value:X8}";
+            return $"{Type} 0x{Offset:X8} {Value}";
         }
     }
 }
