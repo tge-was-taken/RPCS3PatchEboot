@@ -6,15 +6,14 @@ using System.Linq;
 
 using YamlDotNet.Serialization;
 using ELFSharp.ELF;
-using ELFSharp.ELF.Sections;
-using System.Runtime.CompilerServices;
+using ELFSharp.ELF.Segments;
 
 namespace RPCS3PatchEboot
 {
     class Program
     {
-        private static byte[] ElfMagic = { 0x7F, ( byte ) 'E', ( byte ) 'L', ( byte ) 'F' };
-        private static byte[] SceMagic = { ( byte ) 'S', ( byte ) 'C', ( byte ) 'E', 0x00 };
+        private static readonly byte[] ElfMagic = { 0x7F, ( byte ) 'E', ( byte ) 'L', ( byte ) 'F' };
+        private static readonly byte[] SceMagic = { ( byte ) 'S', ( byte ) 'C', ( byte ) 'E', 0x00 };
 
         public static string InEbootPath { get; private set; }
 
@@ -149,7 +148,7 @@ namespace RPCS3PatchEboot
                         case "FilterByName":
                             if ( i + 1 == args.Length )
                             {
-                                Console.WriteLine( "Missing argument for option FilterByHash" );
+                                Console.WriteLine( "Missing argument for option FilterByName" );
                                 return false;
                             }
 
@@ -273,15 +272,16 @@ namespace RPCS3PatchEboot
             }
             else
             {
-                var firstCodeSection = elf.GetSections<Section<ulong>>().FirstOrDefault( x => x.Type == SectionType.ProgBits );
-                if ( firstCodeSection == null )
+                var firstExecSegment = elf.Segments.FirstOrDefault( x => x.Flags.HasFlag( SegmentFlags.Execute ) );
+
+                if ( firstExecSegment == null )
                 {
-                    Console.WriteLine( "Invalid ELF. No code (ProgBits) section found." );
+                    Console.WriteLine( "Invalid ELF. No executable segment found." );
                     return false;
                 }
                 else
                 {
-                    baseOffset = ( int )( firstCodeSection.LoadAddress - firstCodeSection.Offset );
+                    baseOffset = ( int )( firstExecSegment.Address - (ulong)firstExecSegment.Offset );
                 }
             }
 
@@ -334,7 +334,7 @@ namespace RPCS3PatchEboot
                         continue;
 
                     // read patch unit
-                    if ( TryParsePatchUnits( yamlMapEntry, patchUnitMap, out var parsedPatchUnits ) )
+                    if ( TryParsePatchUnits( yamlMapEntry, patchUnitMap, out var parsedPatchUnits ) && parsedPatchUnits[0] != null )
                     {
                         if ( PPUHashString != null )
                             patchUnitMap[parsedPatchUnits[0].Name] = parsedPatchUnits[0];
@@ -480,7 +480,7 @@ namespace RPCS3PatchEboot
 
                     foreach ( var patch in patchUnit.Patches )
                     {
-                        outFileStream.Position = ( patch.Offset - ebootBaseOffset );
+                        outFileStream.Position = patch.Offset - (uint)ebootBaseOffset;
                         var valueStr = Math.Truncate((double)patch.Value) == patch.Value ? ((ulong)patch.Value).ToString("X8") : patch.Value.ToString();
                         Console.WriteLine( $"{outFileStream.Position:X8} -> {valueStr} ({patch.Type})" );
 
