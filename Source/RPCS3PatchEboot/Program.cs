@@ -447,12 +447,20 @@ namespace RPCS3PatchEboot
                         break;
                     }
 
-                    if ( !TryParseValue( yamlPatch[2], out var value ) )
+                dynamic value;
+                if (patchType == PatchType.Utf8)
+                {
+                    value = yamlPatch[2];
+                }
+                else
+                {
+                    if (!TryParseValue(yamlPatch[2], out value))
                     {
-                        Console.WriteLine( $"Error: Unable to parse patch value. Skipping {yamlMapEntry.Key}" );
+                        Console.WriteLine($"Error: Unable to parse patch value. Skipping {yamlMapEntry.Key}");
                         validPatch = false;
                         break;
-                    }
+                }
+            }
 
                     var patch = new Patch( patchType, (uint)offset, value );
                     patchUnit.Patches.Add( patch );
@@ -515,6 +523,9 @@ namespace RPCS3PatchEboot
                                 reverse = true;
                                 break;
                             case PatchType.Be64:
+                            case PatchType.Utf8:
+                                valueBuffer = System.Text.Encoding.UTF8.GetBytes((string)patch.Value);
+                                break;
                             case PatchType.BeF64:
                                 if ( patch.Type == PatchType.Be64 ) valueBuffer = BitConverter.GetBytes( ( ulong )patch.Value );
                                 else valueBuffer = BitConverter.GetBytes( ( double )patch.Value );
