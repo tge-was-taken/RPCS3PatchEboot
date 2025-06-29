@@ -527,13 +527,13 @@ namespace RPCS3PatchEboot
                                 reverse = true;
                                 break;
                             case PatchType.Be64:
-                            case PatchType.Utf8:
-                                valueBuffer = System.Text.Encoding.UTF8.GetBytes((string)patch.Value);
-                                break;
                             case PatchType.BeF64:
                                 if ( patch.Type == PatchType.Be64 ) valueBuffer = BitConverter.GetBytes( ( ulong )patch.Value );
                                 else valueBuffer = BitConverter.GetBytes( ( double )patch.Value );
                                 reverse = true;
+                                break;
+                            case PatchType.Utf8:
+                                valueBuffer = System.Text.Encoding.UTF8.GetBytes((string)patch.Value);
                                 break;
                             default:
                                 Console.WriteLine( $"Unknown patch type: {patch.Type}" );
