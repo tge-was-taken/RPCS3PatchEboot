@@ -488,9 +488,13 @@ namespace RPCS3PatchEboot
 
                     foreach ( var patch in patchUnit.Patches )
                     {
-                        outFileStream.Position = patch.Offset - (uint)ebootBaseOffset;
-                        var valueStr = Math.Truncate((double)patch.Value) == patch.Value ? ((ulong)patch.Value).ToString("X8") : patch.Value.ToString();
-                        Console.WriteLine( $"{outFileStream.Position:X8} -> {valueStr} ({patch.Type})" );
+                        outFileStream.Position = patch.Offset - (uint)ebootBaseOffset;                        
+                        string valueStr;
+                        if (patch.Type == PatchType.Utf8)
+                            valueStr = $"\"{patch.Value}\"";
+                        else
+                        valueStr = Math.Truncate((double)patch.Value) == patch.Value ? ((ulong)patch.Value).ToString("X8") : patch.Value.ToString();
+                            Console.WriteLine( $"{outFileStream.Position:X8} -> {valueStr} ({patch.Type})" );
 
                         byte[] valueBuffer = null;
                         bool reverse = false;
