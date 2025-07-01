@@ -14,6 +14,7 @@
         Be32,
         Be64,
         BeF32,
-        BeF64
+        BeF64,
+        Utf8
     }
 }

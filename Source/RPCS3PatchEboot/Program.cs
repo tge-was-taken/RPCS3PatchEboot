@@ -447,12 +447,20 @@ namespace RPCS3PatchEboot
                         break;
                     }
 
-                    if ( !TryParseValue( yamlPatch[2], out var value ) )
+                dynamic value;
+                if (patchType == PatchType.Utf8)
+                {
+                    value = yamlPatch[2];
+                }
+                else
+                {
+                    if (!TryParseValue(yamlPatch[2], out value))
                     {
-                        Console.WriteLine( $"Error: Unable to parse patch value. Skipping {yamlMapEntry.Key}" );
+                        Console.WriteLine($"Error: Unable to parse patch value. Skipping {yamlMapEntry.Key}");
                         validPatch = false;
                         break;
-                    }
+                }
+            }
 
                     var patch = new Patch( patchType, (uint)offset, value );
                     patchUnit.Patches.Add( patch );
@@ -480,9 +488,26 @@ namespace RPCS3PatchEboot
 
                     foreach ( var patch in patchUnit.Patches )
                     {
-                        outFileStream.Position = patch.Offset - (uint)ebootBaseOffset;
-                        var valueStr = Math.Truncate((double)patch.Value) == patch.Value ? ((ulong)patch.Value).ToString("X8") : patch.Value.ToString();
-                        Console.WriteLine( $"{outFileStream.Position:X8} -> {valueStr} ({patch.Type})" );
+                        outFileStream.Position = patch.Offset - (uint)ebootBaseOffset;                        
+                        string valueStr;
+                        if (patch.Value is double || patch.Value is float || patch.Value is int || patch.Value is long || patch.Value is uint || patch.Value is ulong || patch.Value is short || patch.Value is ushort || patch.Value is byte)
+                        {
+                            double valAsDouble = Convert.ToDouble(patch.Value);
+                            if (Math.Truncate(valAsDouble) == valAsDouble)
+                                valueStr = ((ulong)valAsDouble).ToString("X8");
+                            else
+                                valueStr = valAsDouble.ToString(CultureInfo.InvariantCulture);
+                        }
+                        else if (patch.Value is string strVal)
+                        {
+                            valueStr = $"\"{strVal}\"";
+                        }
+                        else
+                        {
+                            valueStr = patch.Value.ToString();
+                        }
+
+                        Console.WriteLine($"{outFileStream.Position:X8} -> {valueStr} ({patch.Type})");
 
                         byte[] valueBuffer = null;
                         bool reverse = false;
@@ -519,6 +544,9 @@ namespace RPCS3PatchEboot
                                 if ( patch.Type == PatchType.Be64 ) valueBuffer = BitConverter.GetBytes( ( ulong )patch.Value );
                                 else valueBuffer = BitConverter.GetBytes( ( double )patch.Value );
                                 reverse = true;
+                                break;
+                            case PatchType.Utf8:
+                                valueBuffer = System.Text.Encoding.UTF8.GetBytes((string)patch.Value);
                                 break;
                             default:
                                 Console.WriteLine( $"Unknown patch type: {patch.Type}" );
